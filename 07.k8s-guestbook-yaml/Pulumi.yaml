@@ -1,0 +1,134 @@
+name: k8s-guestbook-yaml
+runtime: yaml
+description: A minimal Kubernetes Pulumi YAML program
+
+variables:
+  redisLeaderName: redis-leader
+  redisLeaderLabels:
+    app: redis-leader
+  redisReplicaName: redis-replica
+  redisReplicaLabels:
+    app: redis-replica
+  frontendName: frontend
+  frontendLabels:
+    app: frontend
+
+resources:
+  # Redis leader
+  redis-leader:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      spec:
+        selector:
+          matchLabels: ${redisLeaderLabels}
+        replicas: 1
+        template:
+          metadata:
+            labels: ${redisLeaderLabels}
+            name: ${redisLeaderName}
+          spec:
+            containers:
+              - name: redis-leader
+                image: redis
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 100Mi
+                ports:
+                  - containerPort: 6379
+  redis-leader-svc:
+    type: kubernetes:core/v1:Service
+    properties:
+      metadata:
+        labels: ${redisLeaderLabels}
+        name: ${redisLeaderName}
+      spec:
+        type: ClusterIP
+        selector: ${redisLeaderLabels}
+        ports:
+          - port: 6379
+            targetPort: 6379
+            protocol: TCP
+
+  # Redis replica
+  redis-replica:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      spec:
+        selector:
+          matchLabels: ${redisReplicaLabels}
+        replicas: 1
+        template:
+          metadata:
+            labels: ${redisReplicaLabels}
+            name: ${redisReplicaName}
+          spec:
+            containers:
+              - name: redis-replica
+                image: pulumi/guestbook-redis-replica
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 100Mi
+                env:
+                  - name: "GET_HOSTS_FROM"
+                    value: "dns"
+                ports:
+                  - containerPort: 6379
+  redis-replica-svc:
+    type: kubernetes:core/v1:Service
+    properties:
+      metadata:
+        labels: ${redisReplicaLabels}
+        name: ${redisReplicaName}
+      spec:
+        type: ClusterIP
+        selector: ${redisReplicaLabels}
+        ports:
+          - port: 6379
+            protocol: TCP
+
+  # frontend
+  frontend:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      spec:
+        selector:
+          matchLabels: ${frontendLabels}
+        replicas: 1
+        template:
+          metadata:
+            labels: ${frontendLabels}
+            name: ${frontendName}
+          spec:
+            containers:
+              - name: php-redis
+                image: pulumi/guestbook-php-redis
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 100Mi
+                env:
+                  - name: "GET_HOSTS_FROM"
+                    value: "dns"
+                ports:
+                  - containerPort: 80
+  frontend-svc:
+    type: kubernetes:core/v1:Service
+    properties:
+      metadata:
+        labels: ${frontendLabels}
+        name: ${frontendName}
+      spec:
+        type: ClusterIP
+        selector: ${frontendLabels}
+        ports:
+          - port: 80
+            protocol: TCP
+
+outputs:
+  redisLeaderName: ${redis-leader.metadata.name}
+  redisReplicaName: ${redis-replica.metadata.name}
+  frontendName: ${frontend.metadata.name}
+  frontendSvc: ${frontend-svc.metadata.name}
+  frontendIP: ${frontend-svc.spec.clusterIP}

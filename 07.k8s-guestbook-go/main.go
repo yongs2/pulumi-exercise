@@ -149,7 +149,7 @@ func main() {
 			return err
 		}
 
-		// front
+		// frontend
 		frontendReplicas := 1
 		frontendLabels := pulumi.StringMap{
 			"app": pulumi.String("frontend"),
