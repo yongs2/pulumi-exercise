@@ -1,0 +1,23 @@
+name: k8s-helm-wordpress
+runtime: yaml
+description: A minimal Kubernetes Pulumi YAML program
+
+variables:
+  chartName: "wordpress"
+  chartVersion: "15.0.5"
+
+resources:
+  wordpress:
+    type: kubernetes:helm.sh/v3:Release
+    properties:
+      chart: ${chartName}
+      version: ${chartVersion}
+      repositoryOpts:
+        repo: https://charts.bitnami.com/bitnami
+      values:
+        global:
+          storageClass: "openebs-hostpath"
+
+outputs:
+  name: ${wordpress.name}
+  status: ${wordpress.status}
