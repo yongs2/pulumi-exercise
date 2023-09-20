@@ -1,0 +1,39 @@
+name: quickstart
+runtime: yaml
+description: A minimal Kubernetes Pulumi YAML program
+
+variables:
+  appLabels:
+    app: nginx
+
+resources:
+  deployment:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      spec:
+        selector:
+          matchLabels: ${appLabels}
+        replicas: 1
+        template:
+          metadata:
+            labels: ${appLabels}
+          spec:
+            containers:
+              - image: nginx
+                name: nginx
+  service:
+    type: kubernetes:core/v1:Service
+    properties:
+      metadata:
+        labels: ${appLabels}
+      spec:
+        type: ClusterIP
+        selector: ${appLabels}
+        ports:
+          - port: 80
+            targetPort: 80
+            protocol: TCP
+
+outputs:
+  name: ${deployment.metadata.name}
+  ip: ${service.spec.clusterIP}
