@@ -1,0 +1,118 @@
+name: my_first_app
+runtime: yaml
+description: A minimal Pulumi YAML program
+
+# Get configuration values
+configuration:
+  frontendPort:
+    type: Number
+  backendPort:
+    type: Number
+  mongoPort:
+    type: Number
+  mongoHost:
+    type: String
+  mongoUsername:
+    type: string
+  mongoPassword:
+    type: string
+    secret: true
+  database:
+    type: String
+  nodeEnvironment:
+    type: String
+  protocol:
+    type: String
+
+# Define variables
+variables:
+  backendImageName: backend
+  frontendImageName: frontend
+
+resources:
+  # Pull the backend image
+  backend-image:
+    type: docker:index:RemoteImage
+    properties:
+      name: pulumi/tutorial-pulumi-fundamentals-backend:latest
+
+  # Pull the frontend image
+  frontend-image:
+    type: docker:index:RemoteImage
+    properties:
+      name: pulumi/tutorial-pulumi-fundamentals-frontend:latest
+
+  # Pull the MongoDB image
+  mongo-image:
+      type: docker:index:RemoteImage
+      properties:
+        name: pulumi/tutorial-pulumi-fundamentals-database-local:latest
+
+  # Create a Docker network
+  network:
+    type: docker:index:Network
+    properties:
+      name: services-${pulumi.stack}
+  
+  # Create the MongoDB container
+  mongo-container:
+    type: docker:index:Container
+    properties:
+      name: mongo-${pulumi.stack}
+      image: ${mongo-image.repoDigest}
+      ports:
+        - internal: ${mongoPort}
+          external: ${mongoPort}
+      envs:
+        [
+          "MONGO_INITDB_ROOT_USERNAME=${mongoUsername}",
+          "MONGO_INITDB_ROOT_PASSWORD=${mongoPassword}"
+        ]
+      networksAdvanced:
+        - name: ${network.name}
+          aliases: ["mongo"]
+
+  # Create the backend container
+  backend-container:
+    type: docker:index:Container
+    properties:
+      name: ${backendImageName}-${pulumi.stack}
+      image: ${backend-image.repoDigest}
+      ports:
+        - internal: ${backendPort}
+          external: ${backendPort}
+      envs:
+        [
+          "DATABASE_HOST=mongodb://${mongoUsername}:${mongoPassword}@${mongoHost}:${mongoPort}",
+          "DATABASE_NAME=${database}?authSource=admin",
+          "NODE_ENV=${nodeEnvironment}"
+        ]
+      networksAdvanced:
+        - name: ${network.name}
+          aliases: ["${backendImageName}-${pulumi.stack}"]
+    options:
+      dependsOn:
+        - ${mongo-container}
+
+  # Create the frontend container
+  frontend-container:
+    type: docker:index:Container
+    properties:
+      name: ${frontendImageName}-${pulumi.stack}
+      image: ${frontend-image.repoDigest}
+      ports:
+        - internal: ${frontendPort}
+          external: ${frontendPort}
+      envs:
+        [
+          "PORT=${frontendPort}",
+          "HTTP_PROXY=backend-${pulumi.stack}:${backendPort}",
+          "PROXY_PROTOCOL=${protocol}"
+        ]
+      networksAdvanced:
+        - name: ${network.name}
+          aliases: ["${frontendImageName}-${pulumi.stack}"]
+
+outputs:
+  url: http://localhost:${frontendPort}
+  mongoPassword: ${mongoPassword}

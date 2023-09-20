@@ -1,0 +1,18 @@
+name: my_second_app
+runtime: yaml
+description: A minimal Pulumi YAML program
+
+config:
+  org: string
+
+variables:
+  firstStackName: ${org}/01.my_first_app/${pulumi.stack}
+
+resources:
+  stackRef:
+    type: pulumi:pulumi:StackReference
+    properties:
+      name: ${firstStackName}
+
+outputs:
+  shopUrl: ${stackRef.outputs["url"]}

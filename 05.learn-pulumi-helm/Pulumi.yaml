@@ -1,0 +1,42 @@
+name: learn-pulumi-helm
+runtime: yaml
+description: A Pulumi YAML program to deploy a Helm chart onto a Kubernetes cluster
+config:
+  # Use this user-supplied value to create a Kubernetes namespace later
+  k8sNamespace:
+    type: string
+    default: nginx-ingress
+# Export some values for use elsewhere
+outputs:
+  name: ${ingresscontroller.name}
+resources:
+  # Use Helm to install the Nginx ingress controller
+  ingresscontroller:
+    properties:
+      chart: nginx-ingress
+      namespace: ${ingressns.metadata.name}
+      repositoryOpts:
+        repo: https://helm.nginx.com/stable
+      skipCrds: true
+      values:
+        controller:
+          appprotect:
+            enable: false
+          appprotectdos:
+            enable: false
+          enableCustomResources: false
+          service:
+            extraLabels: ${appLabels}
+      version: "0.14.1"
+    type: kubernetes:helm.sh/v3:Release
+  # Create a namespace (name of the namespace supplied by the user)
+  ingressns:
+    properties:
+      metadata:
+        labels: ${appLabels}
+        name: ${k8sNamespace}
+    type: kubernetes:core/v1:Namespace
+variables:
+  # Define some labels that will be applied to resources
+  appLabels:
+    app: nginx-ingress
