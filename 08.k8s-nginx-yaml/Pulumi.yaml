@@ -1,0 +1,31 @@
+name: k8s-nginx
+runtime: yaml
+description: A minimal Kubernetes Pulumi YAML program
+
+# Get configuration values
+config:
+  replicas:
+    default: 1
+
+variables:
+  appLabels:
+    app: nginx
+
+resources:
+  deployment:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      spec:
+        replicas: ${replicas}
+        selector:
+          matchLabels: ${appLabels}
+        template:
+          metadata:
+            labels: ${appLabels}
+          spec:
+            containers:
+              - name: nginx
+                image: "nginx:1.7.9"
+
+outputs:
+  name: ${deployment.metadata.name}

@@ -1,0 +1,6 @@
+name: k8s-nginx
+runtime: go
+description: A minimal Kubernetes Pulumi YAML program
+config:
+  replicas:
+    default: 1
