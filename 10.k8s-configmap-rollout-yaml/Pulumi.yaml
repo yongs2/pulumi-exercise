@@ -1,0 +1,86 @@
+name: k8s-configmap-rollout-yaml
+runtime: yaml
+description: A minimal Kubernetes Pulumi YAML program
+
+variables:
+  appName: "nginx"
+  appImage: "nginx:1.13.6-alpine"
+  appLabels:
+    app: nginx
+  configName: "nginxconfig"
+  frontendName: "frontend"
+
+resources:
+  # nginx Configuration data to proxy traffic to `pulumi.github.io`. Read from `default.conf` file.
+  nginxconfig:
+    type: kubernetes:core/v1:ConfigMap
+    properties:
+      metadata:
+        labels: ${appLabels}
+        name: ${configName}
+      data:
+        default.conf: |-
+          upstream node {
+            server pulumi.github.io;
+          }
+          server {
+            listen                  80;
+            server_name             _;
+            root                    /usr/share/nginx/html;
+            location / {
+              proxy_set_header X-Real-IP \$remote_addr;
+              proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+              proxy_set_header Host pulumi.github.io;
+              proxy_pass http://node;
+              proxy_redirect off;
+              port_in_redirect off;
+            }
+          }
+
+  # Deploy 1 nginx replica, mounting the configuration data into the nginx
+  nginx:
+    type: kubernetes:apps/v1:Deployment
+    properties:
+      metadata:
+        labels: ${appLabels}
+        name: ${appName}
+      spec:
+        selector:
+          matchLabels: ${appLabels}
+        replicas: 1
+        template:
+          metadata:
+            labels: ${appLabels}
+            name: ${appName}
+          spec:
+            containers:
+              - name: ${appName}
+                image: ${appImage}
+                volumeMounts:
+                  - name: "nginx-configs"
+                    mountPath: "/etc/nginx/conf.d"
+            volumes:
+              - name: "nginx-configs"
+                configMap:
+                  name: ${nginxconfig.metadata.name}
+  
+  # Expose proxy to the public Internet.
+  frontend:
+    type: kubernetes:core/v1:Service
+    properties:
+      metadata:
+        labels: ${nginx.spec.template.metadata.labels}
+        name: ${frontendName}
+      spec:
+        type: ClusterIP
+        selector: ${appLabels}
+        ports:
+          - port: 80
+            targetPort: 80
+            protocol: TCP
+    
+outputs:
+  name: ${nginx.metadata.name}
+  svcName: ${frontend.metadata.name}
+  nginxconfigName: ${nginxconfig.metadata.name}
+  frontendIP: ${frontend.spec.clusterIP}

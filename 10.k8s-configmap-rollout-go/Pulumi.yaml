@@ -1,0 +1,3 @@
+name: k8s-configmap-rollout-go
+runtime: go
+description: A minimal Kubernetes Go Pulumi program
