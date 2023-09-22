@@ -1,0 +1,3 @@
+name: openstack-compute-instance-go
+runtime: go
+description: A minimal OpenStack Go Pulumi program
