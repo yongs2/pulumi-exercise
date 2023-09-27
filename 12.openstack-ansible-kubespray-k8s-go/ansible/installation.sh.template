@@ -1,0 +1,126 @@
+#!/bin/bash
+
+# current directory=/, ID=uid=0(root)
+
+#CONFIG_FILE is address of ansible inventory file
+export CONFIG_FILE=inventory/mycluster/hosts.yaml
+#USE_REAL_HOSTNAME is switch to detect real hostname by inventory.py
+export USE_REAL_HOSTNAME=true
+#KUBE_MASTERS is total count of masters in inventory file
+#export KUBE_MASTERS=3
+
+# for log
+export INSTALL_LOG=/var/log/k8s_install.log
+sudo touch $INSTALL_LOG
+sudo chown {{.UserName}} $INSTALL_LOG
+
+### add private ssh key ###
+touch /home/{{.UserName}}/.ssh/id_rsa
+chmod 600 /home/{{.UserName}}/.ssh/id_rsa
+echo "{{.PrivateKey}}" > /home/{{.UserName}}/.ssh/id_rsa
+chown {{.UserName}} /home/{{.UserName}}/.ssh/id_rsa
+
+### install Prerequisite ###
+echo ">> current directory=$PWD, ID=$(id)" &>> $INSTALL_LOG
+echo "wait a moment, sleep 10s"
+sleep 10
+echo ">> upgrade" &>> $INSTALL_LOG
+sudo apt-get -y upgrade &>> $INSTALL_LOG
+echo ">> update" &>> $INSTALL_LOG
+sudo apt-get -y update &>> $INSTALL_LOG
+echo ">> install jq git gcc" &>> $INSTALL_LOG
+sudo apt-get -y install jq git gcc &>> $INSTALL_LOG
+echo ">> install python3 python3-pip" &>> $INSTALL_LOG
+sudo apt-get -y install python3 python3-pip &>> $INSTALL_LOG
+sudo pip3 install yq &>> $INSTALL_LOG
+
+### clone kubespray ###
+echo start clone kubespray &>> $INSTALL_LOG
+git clone -b {{.KubesprayVersion}} https://github.com/kubernetes-sigs/kubespray.git &>> $INSTALL_LOG
+echo kubespray cloend. &>> $INSTALL_LOG
+
+### [prepare kubespray](https://github.com/kubernetes-sigs/kubespray) ###
+cd kubespray
+sudo pip3 install ruamel_yaml &>> $INSTALL_LOG
+sudo pip3 install -r requirements.txt &>> $INSTALL_LOG
+cp -rfp inventory/sample inventory/mycluster
+
+YAML_FILE="inventory/mycluster/group_vars/k8s_cluster/k8s-cluster.yml"
+echo "fix $YAML_FILE" &>> $INSTALL_LOG
+# for docker
+sed -i 's/resolvconf_mode: host_resolvconf/resolvconf_mode: docker_dns/g' $YAML_FILE
+sed -i 's/container_manager: containerd/container_manager: docker/g' $YAML_FILE
+# for metallb
+sed -i 's/kube_proxy_strict_arp: false/kube_proxy_strict_arp: true/g' $YAML_FILE
+# for network
+sed -i 's/kube_service_addresses: 10.233.0.0\/18/kube_service_addresses: 10.96.0.0\/18/g' $YAML_FILE
+sed -i 's/kube_pods_subnet: 10.233.64.0\/18/kube_pods_subnet: 10.32.0.0\/18/g' $YAML_FILE
+# etc
+# sed -i 's/kube_log_level: 2/kube_log_level: 0/g' $YAML_FILE
+sed -i 's/kubernetes_audit: false/kubernetes_audit: true/g' $YAML_FILE
+
+YAML_FILE="inventory/mycluster/group_vars/k8s_cluster/addons.yml"
+echo "fix $YAML_FILE" &>> $INSTALL_LOG
+sed -i 's/# dashboard_enabled: false/dashboard_enabled: true/g' $YAML_FILE
+sed -i 's/helm_enabled: false/helm_enabled: true/g' $YAML_FILE
+sed -i 's/metrics_server_enabled: false/metrics_server_enabled: true/g' $YAML_FILE
+### for metallb
+sed -i 's/metallb_enabled: false/metallb_enabled: true/g' $YAML_FILE
+sed -i 's/# metallb_ip_range:/metallb_ip_range:/g' $YAML_FILE
+sed -i 's/#   - \"10.5.0.50-10.5.0.99\"/   - \"'{{.MetallbIpRange}}'\"/g' $YAML_FILE
+sed -i 's/# metallb_pool_name: \"loadbalanced\"/metallb_pool_name: \"loadbalanced\"/g' $YAML_FILE
+sed -i 's/# metallb_protocol: \"layer2\"/metallb_protocol: \"layer2\"/g' $YAML_FILE
+# #### Enable eBPF
+echo -e "\n# Enable eBPF" >> $YAML_FILE
+echo "calico_bpf_enabled: true" >> $YAML_FILE
+# # To enable BGP no-encapsulation mode:
+# echo "calico_ipip_mode: \"Never\"" >> $YAML_FILE
+# echo "calico_vxlan_mode: \"Never\"" >> $YAML_FILE
+# echo "calico_network_backend: \"bird\"" >> $YAML_FILE
+# echo "calico_bpf_service_mode: \"DSR\"" >> $YAML_FILE
+# echo "calico_bpf_log_level: \"Debug\"" >> $YAML_FILE
+# echo "loadbalancer_apiserver_localhost: true" >> $YAML_FILE
+# echo "use_localhost_as_kubeapi_loadbalancer: true" >> $YAML_FILE
+
+YAML_FILE="inventory/mycluster/group_vars/all/etcd.yml"
+echo "fix $YAML_FILE" &>> $INSTALL_LOG
+# for docker
+sed -i 's/# container_manager: containerd/container_manager: docker/g' $YAML_FILE
+sed -i 's/etcd_deployment_type: host/etcd_deployment_type: docker/g' $YAML_FILE
+
+### fix kubespray master worker separation bug ###
+sed -i '369s/SCALE_THRESHOLD/0/' contrib/inventory_builder/inventory.py
+
+### create ansible inventroy ###
+export KUBE_CONTROL_HOSTS={{.KubeControlHosts}}
+echo "create ansible inventroy master.cnt({{.KubeControlHosts}})={{.MasterIps}}, worker={{.WorkerIps}}" &>> $INSTALL_LOG
+python3 contrib/inventory_builder/inventory.py {{.MasterIps}} &>> $INSTALL_LOG
+python3 contrib/inventory_builder/inventory.py add {{.WorkerIps}} &>> $INSTALL_LOG
+echo "check $CONFIG_FILE" && cat $CONFIG_FILE &>> $INSTALL_LOG
+
+### create install.sh script ###
+echo "create install.sh script" &>> $INSTALL_LOG
+echo "ansible_ssh_common_args=-o \
+StrictHostKeyChecking=no \
+ansible-playbook -i inventory/mycluster/hosts.yaml \
+-e ansible_user={{.UserName}} \
+-e https_proxy={{.HttpProxy}} \
+-e http_proxy={{.HttpProxy}} \
+-e auto_renew_certificates=true \
+-b cluster.yml" > install.sh
+chmod +x install.sh
+
+### create uninstall.sh script ###
+echo "ansible_ssh_common_args=-o \
+StrictHostKeyChecking=no \
+ansible-playbook -i inventory/mycluster/hosts.yaml \
+-e ansible_user={{.UserName}} \
+reset.yml" > uninstall.sh
+chmod +x uninstall.sh
+
+### print Guidelines ###
+echo to beginning of installation run: /home/{{.UserName}}/kubespray/install.sh &>> $INSTALL_LOG
+echo 'initialization finished' &>> $INSTALL_LOG
+echo '#################' &>> $INSTALL_LOG
+echo '/home/{{.UserName}}/kubespray/install.sh started...' &>> $INSTALL_LOG
+/home/{{.UserName}}/kubespray/install.sh &>> $INSTALL_LOG
