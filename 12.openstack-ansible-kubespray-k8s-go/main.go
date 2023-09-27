@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"strings"
 
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	"github.com/pulumi/pulumi-openstack/sdk/v3/go/openstack/compute"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	ansible "openstack-ansible-kubespray-k8s-go/ansible"
 	k8scommon "openstack-ansible-kubespray-k8s-go/k8s/common"
+	k8smaster "openstack-ansible-kubespray-k8s-go/k8s/master"
 	osinsta "openstack-ansible-kubespray-k8s-go/osinsta"
 )
 
@@ -60,8 +63,8 @@ func main() {
 			"192.168.5.60", // k8s-master-003
 			"192.168.5.63", // k8s-worker-001
 		}
-		// metallbIpRange := "192.168.5.64-192.168.5.66"
-		// kubeSprayVersion := "v2.21.0"
+		metallbIpRange := "192.168.5.64-192.168.5.66"
+		kubeSprayVersion := "v2.21.0"
 		nIdxIpAddresses := 0
 		imageName := "ubuntu-22.04-LTS"
 		loginUserName := "ubuntu"
@@ -139,7 +142,7 @@ func main() {
 
 		// Create instance for ansible
 		var ansible1 *osinsta.OpenStackInstance
-		// var scriptAnsible *remote.Command
+		var scriptAnsible *remote.Command
 		for i := 0; i < 1; i++ {
 			name := "ansible"
 			osinstaArgs := osinstaDefaultArgs
@@ -154,37 +157,37 @@ func main() {
 			// Export the IP of the instance
 			ctx.Export("AnsibleIP", ansible1.InstanceIP)
 
-			// // Run kubespray script
-			// scriptAnsible, err = ansible.RunCommand(ctx, name, ansible.ClusterVariable{
-			// 	PrivateKey:       string(privateKey[:]),
-			// 	Host:             ansible1.InstanceIP,
-			// 	UserName:         loginUserName,
-			// 	HttpProxy:        "",
-			// 	MasterIps:        strings.Join(ipAddresses[0:nCntMaster], ","),
-			// 	WorkerIps:        strings.Join(ipAddresses[nCntMaster:nCntMaster+nCntWorker], ","),
-			// 	KubeControlHosts: len(ipAddresses[0:nCntMaster]),
-			// 	MetallbIpRange:   metallbIpRange,
-			// 	KubesprayVersion: kubeSprayVersion,
-			// }, pulumi.DependsOn([]pulumi.Resource{ansible1}))
-			// if err != nil {
-			// 	log.Printf("Created RunCommand.Err[%v]", err)
-			// 	return err
-			// }
+			// Run kubespray script
+			scriptAnsible, err = ansible.RunCommand(ctx, name, ansible.ClusterVariable{
+				PrivateKey:       string(privateKey[:]),
+				Host:             ansible1.InstanceIP,
+				UserName:         loginUserName,
+				HttpProxy:        "",
+				MasterIps:        strings.Join(ipAddresses[0:nCntMaster], ","),
+				WorkerIps:        strings.Join(ipAddresses[nCntMaster:nCntMaster+nCntWorker], ","),
+				KubeControlHosts: len(ipAddresses[0:nCntMaster]),
+				MetallbIpRange:   metallbIpRange,
+				KubesprayVersion: kubeSprayVersion,
+			}, pulumi.DependsOn([]pulumi.Resource{ansible1}))
+			if err != nil {
+				log.Printf("Created RunCommand.Err[%v]", err)
+				return err
+			}
 		}
 
-		// // Run k8s master script after all ntels script have run
-		// for i := 0; i < nCntMaster; i++ {
-		// 	name := fmt.Sprintf("k8s-master-%02d", i+1)
-		// 	_, err = k8smaster.RunCommand(ctx, name, k8smaster.ClusterVariable{
-		// 		PrivateKey: string(privateKey[:]),
-		// 		Host:       k8sMaster[i].InstanceIP,
-		// 		UserName:   loginUserName,
-		// 	}, pulumi.DependsOn([]pulumi.Resource{scriptAnsible}))
-		// 	if err != nil {
-		// 		log.Printf("Created RunCommand[%v].Err[%v]", name, err)
-		// 		return err
-		// 	}
-		// }
+		// Run k8s master script after all ntels script have run
+		for i := 0; i < nCntMaster; i++ {
+			name := fmt.Sprintf("k8s-master-%02d", i+1)
+			_, err = k8smaster.RunCommand(ctx, name, k8smaster.ClusterVariable{
+				PrivateKey: string(privateKey[:]),
+				Host:       k8sMaster[i].InstanceIP,
+				UserName:   loginUserName,
+			}, pulumi.DependsOn([]pulumi.Resource{scriptAnsible}))
+			if err != nil {
+				log.Printf("Created RunCommand[%v].Err[%v]", name, err)
+				return err
+			}
+		}
 
 		return nil
 	})
