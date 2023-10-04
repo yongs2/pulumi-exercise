@@ -1,11 +1,13 @@
 package common
 
 import (
+	"context"
 	"fmt"
 	"log"
 
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 )
 
 type ClusterVariable struct {
@@ -20,7 +22,13 @@ func RunCommand(ctx *pulumi.Context, name string, clusterVariable ClusterVariabl
 	localFileName := "k8s/master/install.sh"
 	outputFileName := "/tmp/install_master.sh"
 
-	log.Printf("[%v] Connection.Host=[%v],User=[%v]", logPrefix, clusterVariable.Host, clusterVariable.UserName)
+	result, err := internals.UnsafeAwaitOutput(context.Background(), clusterVariable.Host.ToStringOutput())
+	if err != nil {
+		log.Printf("[%v] UnsafeAwaitOutput[%v].Err[%v]", logPrefix, result, err)
+		return nil, err
+	}
+
+	log.Printf("[%v] Connection.Host=[%v],User=[%v]", logPrefix, result.Value, clusterVariable.UserName)
 	connection := remote.ConnectionArgs{
 		Host:       clusterVariable.Host,
 		PrivateKey: pulumi.String(clusterVariable.PrivateKey),
